@@ -109,6 +109,8 @@ void gui_disp_ctrl_mode(uint8_t ctrl_mode)
     M5.Display.endWrite();
 }
 
+// Sprite
+LGFX_Sprite sprite;
 
 void setup()
 {
@@ -154,6 +156,12 @@ void setup()
     RollerI2C.setRGBMode(1);
     RollerI2C.setRGB(TFT_WHITE);
 
+    // Sprite
+    sprite.createSprite(M5.Display.width(), M5.Display.height());
+    sprite.setTextSize(2);
+    sprite.setCursor(M5.Display.width()/2, M5.Display.height()/2);
+    sprite.printf("ROLLER");
+
     // application timer
     print_enable_10sec = false;
     print_enable_3sec = false;
@@ -196,11 +204,15 @@ void loop()
         // Serial.println("[Info] Button C was pressed");
         beep();
     }
+    // if(M5.Touch.getDetail().isPressed()) {
+    //     static float angle = 0.0f;
+    //     sprite.pushRotated(angle);
+    //     angle += PI / 24.0;
+    // }
 
     if(motion_enable) {
         switch (ctrl_mode) {
         case CtrlMode::CURRENT:
-            // current mode
             RollerI2C.setMode(3);
             RollerI2C.setCurrent(120000);
             RollerI2C.setOutput(1);
@@ -214,7 +226,6 @@ void loop()
             }
             break;
         case CtrlMode::POSITION:
-            // position mode
             RollerI2C.setOutput(0);
             RollerI2C.setMode(2);
             RollerI2C.setPos(2000000);
@@ -233,7 +244,6 @@ void loop()
             }
             break;
         case CtrlMode::SPEED:
-            // speed mode
             RollerI2C.setOutput(0);
             RollerI2C.setMode(1);
             RollerI2C.setSpeed(240000);
@@ -252,7 +262,6 @@ void loop()
             }
             break;
         case CtrlMode::ENCODER:
-            // encoder mode
             RollerI2C.setOutput(0);
             RollerI2C.setMode(4);
             // RollerI2C.setDialCounter(240000);
