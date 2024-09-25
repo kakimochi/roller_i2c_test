@@ -109,8 +109,8 @@ void gui_disp_ctrl_mode(uint8_t ctrl_mode)
     M5.Display.endWrite();
 }
 
-// Sprite
-LGFX_Sprite sprite;
+// GFX
+M5Canvas canvas;
 
 void setup()
 {
@@ -150,17 +150,17 @@ void setup()
 
     // roller
     ctrl_mode = CtrlMode::SPEED;
-    motion_enable = true;
+    motion_enable = false;
     gui_disp_ctrl_mode(ctrl_mode);
     RollerI2C.setDialCounter(0);
     RollerI2C.setRGBMode(1);
     RollerI2C.setRGB(TFT_WHITE);
 
-    // Sprite
-    sprite.createSprite(M5.Display.width(), M5.Display.height());
-    sprite.setTextSize(2);
-    sprite.setCursor(M5.Display.width()/2, M5.Display.height()/2);
-    sprite.printf("ROLLER");
+    // GFX
+    canvas.createSprite(M5.Display.width(), M5.Display.height());
+    canvas.setTextSize(2);
+    canvas.setCursor(M5.Display.width()/2, M5.Display.height()/2);
+    canvas.printf("ROLLER");
 
     // application timer
     print_enable_10sec = false;
@@ -204,11 +204,12 @@ void loop()
         // Serial.println("[Info] Button C was pressed");
         beep();
     }
-    // if(M5.Touch.getDetail().isPressed()) {
-    //     static float angle = 0.0f;
-    //     sprite.pushRotated(angle);
-    //     angle += PI / 24.0;
-    // }
+    if(M5.Touch.getDetail().isPressed()) {
+        static float angle_deg = 0.0f;
+        canvas.pushRotated(&M5.Display, angle_deg);
+        angle_deg += 45.0;
+        Serial.printf("[Info] Touch was pressed, angle=%f deg\n", angle_deg);
+    }
 
     if(motion_enable) {
         switch (ctrl_mode) {
