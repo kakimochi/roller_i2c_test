@@ -40,6 +40,7 @@ bool print_enable_10sec = false;
 bool print_enable_3sec = false;
 
 // IMU
+// 制御AHRS（Attitude Heading Reference System）とは、姿勢角と方位角を出力する装置で、姿勢制御や方位測定、自動ナビゲーションなどに使用されます
 float Pitch_ahrs, Roll_ahrs, Yaw_ahrs, Roll_bias, Roll;
 float Gyro_x, Gyro_y, Gyro_z;
 float Acc_x, Acc_y, Acc_z;
@@ -240,10 +241,13 @@ void task_control(void *pvParameters) {
 
             RollerI2C_R.setCurrent(Current_ref_r);
             RollerI2C_L.setCurrent(-Current_ref_l);
+            RollerI2C_R.setRGB(ctrl_mode_color[ctrl_mode]);
+            RollerI2C_L.setRGB(ctrl_mode_color[ctrl_mode]);
         } else {
-            // TODO 停止表示
             RollerI2C_R.setCurrent(0);
             RollerI2C_L.setCurrent(0);
+            RollerI2C_R.setRGB(TFT_ORANGE);
+            RollerI2C_L.setRGB(TFT_ORANGE);
         }
         finished_time = micros();
         diff_time = finished_time - current_time;
@@ -312,16 +316,16 @@ void setup()
     ctrl_mode = CtrlMode::CURRENT;
     RollerI2C_L.setDialCounter(0);
     RollerI2C_L.setRGBMode(ROLLER_RGB_MODE_USER_DEFINED);
-    RollerI2C_L.setRGB(ctrl_mode_color[ctrl_mode]);
     RollerI2C_R.setDialCounter(0);
     RollerI2C_R.setRGBMode(ROLLER_RGB_MODE_USER_DEFINED);
-    RollerI2C_R.setRGB(ctrl_mode_color[ctrl_mode]);
     // motion_enable = false;
     gui_disp_ctrl_mode(ctrl_mode);
     RollerI2C_L.setMode(ROLLER_MODE_CURRENT);
     RollerI2C_R.setMode(ROLLER_MODE_CURRENT);
     RollerI2C_L.setOutput(1);
     RollerI2C_R.setOutput(1);
+    RollerI2C_L.setRGB(ctrl_mode_color[ctrl_mode]);
+    RollerI2C_R.setRGB(ctrl_mode_color[ctrl_mode]);
 
     // application timer
     print_enable_10sec = false;
