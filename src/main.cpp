@@ -49,7 +49,7 @@ int32_t Current_r, Current_l;
 int32_t Pos_r, Pos_l, Pos_bias_r, Pos_bias_l;
 int32_t Speed_r, Speed_l;
 int32_t Voltage_r,Voltage_l;
-int32_t St, _St, Et, Dt;
+int32_t current_time, previous_time, finished_time, diff_time;
 float f1,f2,f3,f4;
 float k1;
 float U0, U_yaw, U_v;
@@ -57,7 +57,7 @@ uint8_t Start_flag = 0;
 float commpass_x,commpass_y,commpass_z;
 
 // madgwick filter
-#define IMU_MADGWICK_SAMPLE_FREQ_HZ 100
+#define IMU_MADGWICK_SAMPLE_FREQ_HZ 100 // 200
 Madgwick madwick;
 typedef struct
 {
@@ -70,8 +70,8 @@ Posture posture;
 // roller
 UnitRollerI2C RollerI2C_L;  // Create a UNIT_ROLLERI2C object for LEFT
 UnitRollerI2C RollerI2C_R;  // Create a UNIT_ROLLERI2C object for RIGHT
-uint32_t p, i, d;         // Defines a variable to store the PID value
-uint8_t r, g, b;
+// uint32_t p, i, d;         // Defines a variable to store the PID value
+// uint8_t r, g, b;
 
 typedef enum {
     SPEED = 1,
@@ -139,18 +139,41 @@ void gui_disp_ctrl_mode(uint8_t ctrl_mode)
     M5.Display.endWrite();
 }
 
-void taskFunction(void *pvParameters) {
+void task_monitor(void *pvParameters) {
+    while(true) {
+        vTaskDelay(pdMS_TO_TICKS(50));
+
+        M5.update();
+        if(M5.BtnA.wasPressed()) {
+            Serial.printf("[Info] Button A was pressed.\n");
+            Start_flag = !Start_flag;
+            Roll_bias = Roll;
+            Pos_bias_r = Pos_r;
+            Pos_bias_l = Pos_l;
+        }
+
+        if(print_enable_3sec) {
+            printf("[Info]  Acc: %3.2f, %3.2f, %3.2f\n", Acc_x, Acc_y, Acc_z);
+            printf("[Info] Gyro: %3.2f, %3.2f, %3.2f\n", Gyro_x, Gyro_y, Gyro_z);
+            printf("----\n");
+            M5.Display.fillRect(7, 7 + 12 + 14*2, 320, 14*2, BLACK); // clear the area
+            M5.Display.drawString("Acc: "+String(Acc_x)+", "+String(Acc_y)+", "+String(Acc_z), 7, 7 + 12 + 14*2);
+            print_enable_3sec = false;
+        }
+    }
+}
+
+void task_control(void *pvParameters) {
     TickType_t xLastWakeTime;
     const TickType_t xFrequency = pdMS_TO_TICKS(5); // 5ms の周期
-
-    // 初期化
     xLastWakeTime = xTaskGetTickCount();
 
     while (true) {
         // 次の周期まで待機
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
-        _St = St;
-        St = micros();
+        previous_time = current_time;
+        current_time = micros();
+        // IMU
         M5.Imu.update();
         auto imudata = M5.Imu.getImuData();
         Gyro_x = imudata.gyro.x;
@@ -164,6 +187,8 @@ void taskFunction(void *pvParameters) {
         Pitch_ahrs = madwick.getPitch();
         Yaw_ahrs = madwick.getYaw();
         // MadgwickAHRSupdateIMU(Gyro_x * DEG_TO_RAD, Gyro_y * DEG_TO_RAD, Gyro_z * DEG_TO_RAD, Acc_x, Acc_y, Acc_z, &Pitch_ahrs, &Roll_ahrs, &Yaw_ahrs);
+
+        // Control
         k1 = 0.3;
         Roll = k1*Roll +(1-k1)*Roll_ahrs;
         Current_r =  RollerI2C_R.getCurrentReadback();
@@ -177,10 +202,10 @@ void taskFunction(void *pvParameters) {
 
         // current control
         if(Start_flag==1){
-            f1 = 7500.0;//4200.0;//振子の角度に比例して電流を制御
-            f2 = 150.0;//200.0;//振子の角速度に比例して電流を制御
-            f3 = 0.0;//モータの角度に比例して電流を制御 0.1
-            f4 = 0.0;//モータの角速度に比例して電流を制御
+            f1 = 7500.0;    //4200.0;//振子の角度に比例して電流を制御
+            f2 = 150.0;     //200.0;//振子の角速度に比例して電流を制御
+            f3 = 0.0;       //モータの角度に比例して電流を制御 0.1
+            f4 = 0.0;       //モータの角速度に比例して電流を制御
             float yaw_ref = -360.0*0.0f;
             // float yaw_ref = -360.0*Stick[RUDDER];
             float yaw_err = yaw_ref - Gyro_z;
@@ -204,9 +229,8 @@ void taskFunction(void *pvParameters) {
             RollerI2C_R.setCurrent(0);
             RollerI2C_L.setCurrent(0);
         }
-        Et = micros();
-        Dt = Et - St;
-
+        finished_time = micros();
+        diff_time = finished_time - current_time;
     }
 }
 
@@ -227,14 +251,14 @@ void setup()
         while(1);
     }
 
-#if 0 // Set I2C address process
+    #if 0 // Set I2C address process
     if (RollerI2C_L.setI2CAddress(0x65)) {
         Serial.println("[Info] I2C address set to 0x65 successfully");
     } else {
         Serial.println("[Error] Failed to set I2C address to 0x65");
     }
     while(1);
-#endif
+    #endif
 
     // GUI
     // battery_level = M5.Power.getBatteryLevel();
@@ -280,10 +304,18 @@ void setup()
     RollerI2C_R.setRGB(TFT_GOLD);
 
     // Task
-    BaseType_t result = xTaskCreateUniversal(taskFunction, "5ms Periodic Task", 8192, NULL, 5, NULL, APP_CPU_NUM);
+    BaseType_t result = xTaskCreateUniversal(task_control, "5ms Periodic Task", 8192, NULL, 5, NULL, APP_CPU_NUM);
     if (result != pdPASS) {
         printf("[Error] Task creation failed: %d\n", result);
+        printf("[Error] into the infinite loop\n");
         while (1);
+    }
+
+    result = xTaskCreateUniversal(task_monitor, "monitor_task", 8192, NULL, 1, NULL, APP_CPU_NUM);
+    if (result != pdPASS) {
+        printf("[Error] Task creation failed: %d\n", result);
+        printf("[Error] into the infinite loop\n");
+        while(1);
     }
 
     // application timer
@@ -299,7 +331,7 @@ void setup()
 
 void loop()
 {
-    M5.update();
+    // M5.update();
 
     #if 0 // for imu debug
     M5.Imu.update();
@@ -311,15 +343,15 @@ void loop()
     Gyro_y = imu_data.gyro.y;
     Gyro_z = imu_data.gyro.z;
     #endif
-    if(M5.BtnA.isPressed()) {
-    // if(M5.BtnA.wasPressed()) {
-        Serial.printf("[Info] Button A was pressed.\n");
-        Start_flag = !Start_flag;
-        Roll_bias = Roll;
-        Pos_bias_r = Pos_r;
-        Pos_bias_l = Pos_l;
-        beep();
-    }
+    // if(M5.BtnA.isPressed()) {
+    // // if(M5.BtnA.wasPressed()) {
+    //     Serial.printf("[Info] Button A was pressed.\n");
+    //     Start_flag = !Start_flag;
+    //     Roll_bias = Roll;
+    //     Pos_bias_r = Pos_r;
+    //     Pos_bias_l = Pos_l;
+    //     beep();
+    // }
     if(print_enable_3sec) {
         printf("[Info]  Acc: %3.2f, %3.2f, %3.2f\n", Acc_x, Acc_y, Acc_z);
         printf("[Info] Gyro: %3.2f, %3.2f, %3.2f\n", Gyro_x, Gyro_y, Gyro_z);
