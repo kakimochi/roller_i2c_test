@@ -70,8 +70,6 @@ Posture posture;
 // roller
 UnitRollerI2C RollerI2C_L;  // Create a UNIT_ROLLERI2C object for LEFT
 UnitRollerI2C RollerI2C_R;  // Create a UNIT_ROLLERI2C object for RIGHT
-// uint32_t p, i, d;         // Defines a variable to store the PID value
-// uint8_t r, g, b;
 
 typedef enum {
     SPEED = 1,
@@ -86,7 +84,7 @@ static int ctrl_mode_color[1+4] = {
     TFT_WHITE,      // NONE
     TFT_YELLOW,     // CtrlMode::SPEED
     TFT_BLUE,       // CtrlMode::POSITION
-    TFT_PURPLE,     // CtrlMode::CURRENT
+    TFT_GOLD,       // CtrlMode::CURRENT
     TFT_GREENYELLOW // CtrlMode::ENCODER
 };
 
@@ -141,11 +139,9 @@ void gui_disp_ctrl_mode(uint8_t ctrl_mode)
 
 void task_monitor(void *pvParameters) {
     while(true) {
-        vTaskDelay(pdMS_TO_TICKS(50));
-
         M5.update();
         if(M5.BtnA.wasPressed()) {
-            Serial.printf("[Info] Button A was pressed.\n");
+            printf("[Info] Button A was pressed.\n");
             Start_flag = !Start_flag;
             Roll_bias = Roll;
             Pos_bias_r = Pos_r;
@@ -155,11 +151,25 @@ void task_monitor(void *pvParameters) {
         if(print_enable_3sec) {
             printf("[Info]  Acc: %3.2f, %3.2f, %3.2f\n", Acc_x, Acc_y, Acc_z);
             printf("[Info] Gyro: %3.2f, %3.2f, %3.2f\n", Gyro_x, Gyro_y, Gyro_z);
+            printf("[Info] Start_flag: %d\n", Start_flag);
             printf("----\n");
             M5.Display.fillRect(7, 7 + 12 + 14*2, 320, 14*2, BLACK); // clear the area
             M5.Display.drawString("Acc: "+String(Acc_x)+", "+String(Acc_y)+", "+String(Acc_z), 7, 7 + 12 + 14*2);
             print_enable_3sec = false;
         }
+
+        // application timer
+        current_ms = millis();
+        if(current_ms - pre_ms_10sec > interval_10sec) {
+            // gui_disp_batterylevel();
+            pre_ms_10sec = current_ms;
+        }
+        if(current_ms - pre_ms_3sec > interval_3sec) {
+            print_enable_3sec = true;
+            pre_ms_3sec = current_ms;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
@@ -206,11 +216,17 @@ void task_control(void *pvParameters) {
             f2 = 150.0;     //200.0;//振子の角速度に比例して電流を制御
             f3 = 0.0;       //モータの角度に比例して電流を制御 0.1
             f4 = 0.0;       //モータの角速度に比例して電流を制御
-            float yaw_ref = -360.0*0.0f;
+
+            // 操作量 左右：rudder、直進：throttle
+            // とりあえず固定値
+            float rudder = 0.0f;
+            float throttle = 0.1f;
+
+            float yaw_ref = -360.0 * rudder;
             // float yaw_ref = -360.0*Stick[RUDDER];
             float yaw_err = yaw_ref - Gyro_z;
             U_yaw = yaw_err * 300.0;
-            U_v = -0.0f * 200000.0;
+            U_v = -throttle * 200000.0;
             // U_v = -Stick[THROTTLE] * 200000.0;
             //State feedback control
             U0 = (-f1 * (Roll-Roll_bias) - f2 * Gyro_x - f3 * ((float)(Pos_r-Pos_bias_r)/1.0) - f4 * Speed_r);
@@ -224,8 +240,8 @@ void task_control(void *pvParameters) {
 
             RollerI2C_R.setCurrent(Current_ref_r);
             RollerI2C_L.setCurrent(-Current_ref_l);
-        }
-        else{
+        } else {
+            // TODO 停止表示
             RollerI2C_R.setCurrent(0);
             RollerI2C_L.setCurrent(0);
         }
@@ -294,14 +310,24 @@ void setup()
 
     // roller
     ctrl_mode = CtrlMode::CURRENT;
-    // motion_enable = false;
-    gui_disp_ctrl_mode(ctrl_mode);
     RollerI2C_L.setDialCounter(0);
     RollerI2C_L.setRGBMode(ROLLER_RGB_MODE_USER_DEFINED);
-    RollerI2C_L.setRGB(TFT_GOLD);
+    RollerI2C_L.setRGB(ctrl_mode_color[ctrl_mode]);
     RollerI2C_R.setDialCounter(0);
     RollerI2C_R.setRGBMode(ROLLER_RGB_MODE_USER_DEFINED);
-    RollerI2C_R.setRGB(TFT_GOLD);
+    RollerI2C_R.setRGB(ctrl_mode_color[ctrl_mode]);
+    // motion_enable = false;
+    gui_disp_ctrl_mode(ctrl_mode);
+    RollerI2C_L.setMode(ROLLER_MODE_CURRENT);
+    RollerI2C_R.setMode(ROLLER_MODE_CURRENT);
+    RollerI2C_L.setOutput(1);
+    RollerI2C_R.setOutput(1);
+
+    // application timer
+    print_enable_10sec = false;
+    print_enable_3sec = false;
+
+    pre_ms_3sec = millis();
 
     // Task
     BaseType_t result = xTaskCreateUniversal(task_control, "5ms Periodic Task", 8192, NULL, 5, NULL, APP_CPU_NUM);
@@ -317,12 +343,6 @@ void setup()
         printf("[Error] into the infinite loop\n");
         while(1);
     }
-
-    // application timer
-    print_enable_10sec = false;
-    print_enable_3sec = false;
-
-    pre_ms_3sec = millis();
 
     // init done
     printf("[Info] init done.\n");
@@ -352,25 +372,25 @@ void loop()
     //     Pos_bias_l = Pos_l;
     //     beep();
     // }
-    if(print_enable_3sec) {
-        printf("[Info]  Acc: %3.2f, %3.2f, %3.2f\n", Acc_x, Acc_y, Acc_z);
-        printf("[Info] Gyro: %3.2f, %3.2f, %3.2f\n", Gyro_x, Gyro_y, Gyro_z);
-        printf("----\n");
-        M5.Display.fillRect(7, 7 + 12 + 14*2, 320, 14*2, BLACK); // clear the area
-        M5.Display.drawString("Acc: "+String(Acc_x)+", "+String(Acc_y)+", "+String(Acc_z), 7, 7 + 12 + 14*2);
-        print_enable_3sec = false;
-    }
+    // if(print_enable_3sec) {
+    //     printf("[Info]  Acc: %3.2f, %3.2f, %3.2f\n", Acc_x, Acc_y, Acc_z);
+    //     printf("[Info] Gyro: %3.2f, %3.2f, %3.2f\n", Gyro_x, Gyro_y, Gyro_z);
+    //     printf("----\n");
+    //     M5.Display.fillRect(7, 7 + 12 + 14*2, 320, 14*2, BLACK); // clear the area
+    //     M5.Display.drawString("Acc: "+String(Acc_x)+", "+String(Acc_y)+", "+String(Acc_z), 7, 7 + 12 + 14*2);
+    //     print_enable_3sec = false;
+    // }
     
-    // application timer
-    current_ms = millis();
-    if(current_ms - pre_ms_10sec > interval_10sec) {
-        // gui_disp_batterylevel();
-        pre_ms_10sec = current_ms;
-    }
-    if(current_ms - pre_ms_3sec > interval_3sec) {
-        print_enable_3sec = true;
-        pre_ms_3sec = current_ms;
-    }
+    // // application timer
+    // current_ms = millis();
+    // if(current_ms - pre_ms_10sec > interval_10sec) {
+    //     // gui_disp_batterylevel();
+    //     pre_ms_10sec = current_ms;
+    // }
+    // if(current_ms - pre_ms_3sec > interval_3sec) {
+    //     print_enable_3sec = true;
+    //     pre_ms_3sec = current_ms;
+    // }
 
-    vTaskDelay(1);
+    // vTaskDelay(1);
 }
